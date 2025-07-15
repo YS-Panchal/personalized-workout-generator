@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Your Workout Plan</title>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600&display=swap" rel="stylesheet">
+  <style>
+  body {
+    font-family: 'Outfit', sans-serif;
+    background: linear-gradient(135deg, #1f1c2c, #928dab);
+    margin: 0;
+    color: #222;
+  }
+
+  h1 {
+    font-family: 'Montserrat', sans-serif;
+    color: #FF5722;
+    font-size: 2.8em;
+    margin-bottom: 30px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    text-shadow: 2px 2px 5px rgba(255, 87, 34, 0.3);
+  }
+
+  h1 .icon {
+    font-size: 1.2em;
+    margin: 0 10px;
+  }
+
+  .workout-box {
+    background: #F7F9FC;
+    border-radius: 18px;
+    padding: 30px;
+    max-width: 1000px;
+    margin: auto;
+    box-shadow: 0 8px 25px rgba(0, 0, 0, 0.2);
+    line-height: 1.8;
+  }
+
+  .workout-box p,
+  .workout-box li {
+    font-size: 17px;
+    color: #363795;
+  }
+
+  .workout-box strong {
+    color: #ff5722;
+  }
+
+  .workout-box em {
+    color: #009688;
+  }
+
+  /* 🎥 Video Section Styling */
+  .video-section {
+    margin-top: 60px;
+    padding: 0 20px;
+    text-align: center;
+  }
+
+  .video-section h2 {
+    font-size: 2rem;
+    color: #ff5722;
+    margin-bottom: 30px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+  }
+
+  .video-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 30px;
+    justify-items: center;
+  }
+
+  .video-card {
+    background: #fff;
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
+    width: 100%;
+    max-width: 320px;
+    transition: transform 0.2s ease-in-out;
+  }
+
+  .video-card:hover {
+    transform: translateY(-5px);
+  }
+
+  .video-card iframe {
+    width: 100%;
+    height: 180px;
+    border: none;
+  }
+
+  .video-card h4 {
+    margin: 0;
+    padding: 12px;
+    background: #ff5722;
+    color: #fff;
+    font-size: 16px;
+    text-align: center;
+  }
+
+  /* ✅ Animation / Summary */
+  #success {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    animation: fadeIn 1s ease-out;
+  }
+
+  @keyframes fadeIn {
+    from {
+      opacity: 0;
+      transform: scale(0.9);
+    }
+
+    to {
+      opacity: 1;
+      transform: scale(1);
+    }
+  }
+
+  .fade-in {
+    animation: fadeIn 0.2s ease forwards;
+  }
+
+  .user-summary {
+    margin-bottom: 30px;
+    padding: 20px;
+    background-color: #f2f6f9;
+    border-radius: 10px;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
+  }
+</style>
+
+</head>
+<body>
+  <div id="success" class="fade-in">
+    <svg width="80" height="80" viewBox="0 0 48 48" fill="none">
+      <circle cx="24" cy="24" r="22" stroke="#4caf50" stroke-width="4" fill="none"/>
+      <path d="M14 24l6 6 14-14" stroke="#4caf50" stroke-width="4" fill="none"/>
+    </svg>
+    <h2 style="color: white;">Plan Ready!</h2>
+  </div>
+
+  <h1>🔥 Your Personalized Workout Plan</h1>
+  
+</div>
+
+  <div class="workout-box">
+    {{ workout | safe }}
+
+    {% if videos %}
+  <div class="video-section">
+    <h2>🎥 Exercise Demo Videos</h2> 
+    <div class="video-grid">
+      {% for title, video_url in videos %}
+        <div class="video-card">
+          <iframe 
+            src="{{ video_url }}"
+            frameborder="0"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+            allowfullscreen>
+          </iframe>
+          <h4>{{ title }}</h4>
+        </div>
+      {% endfor %}
+    </div>
+  </div>
+{% endif %}
+
+
+    <div style="text-align: center; margin-top: 40px;">
+      <button onclick="downloadPDF()" style="padding: 12px 20px; font-size: 16px; background: #673ab7; color: white; border: none; border-radius: 8px; cursor: pointer;">
+        📄 Save Workout Plan as PDF
+      </button>
+    </div>
+
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+  <script>
+    function downloadPDF() {
+      const element = document.querySelector('.workout-box');
+      html2pdf().from(element).set({
+        margin: 0.5,
+        filename: 'Workout_Plan.pdf',
+        image: { type: 'jpeg', quality: 0.98 },
+        html2canvas: { scale: 2 },
+        jsPDF: { unit: 'in', format: 'letter', orientation: 'portrait' }
+      }).save();
+    }
+  </script>
+</body>
+</html>
