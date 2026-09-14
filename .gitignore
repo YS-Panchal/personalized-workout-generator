@@ -1,0 +1,46 @@
+# Python Virtual Environment
+venv/
+env/
+ENV/
+.venv/
+
+# Python bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Python packaging
+*.egg-info/
+dist/
+build/
+
+# Environment variables (DO NOT COMMIT)
+.env
+.env.local
+.env.*.local
+
+# IDE and Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Flask/Web server
+instance/
+.webassets-cache
+
+# Logs
+*.log
+
+# pytest
+.pytest_cache/
+.coverage
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json

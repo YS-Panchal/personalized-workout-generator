@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Your Workout Plan</title>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+
+</head>
+<body>
+  <div id="success" class="fade-in">
+    <svg width="80" height="80" viewBox="0 0 48 48" fill="none">
+      <circle cx="24" cy="24" r="22" stroke="#4caf50" stroke-width="4" fill="none"/>
+      <path d="M14 24l6 6 14-14" stroke="#4caf50" stroke-width="4" fill="none"/>
+    </svg>
+    <h2 style="color: white;">Plan Ready!</h2>
+  </div>
+
+  <h1>🔥 Your Personalized Workout Plan</h1>
+  
+  <div class="workout-box">
+    {{ workout | safe }}
+
+    {% if videos %}
+  <div class="video-section">
+    <h2>🎥 Exercise Demo Videos</h2> 
+    <div class="video-grid">
+      {% for title, video_url in videos %}
+        <div class="video-card">
+          <iframe 
+            src="{{ video_url }}"
+            frameborder="0"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+            allowfullscreen>
+          </iframe>
+          <h4>{{ title }}</h4>
+        </div>
+      {% endfor %}
+    </div>
+  </div>
+{% endif %}
+
+
+    <div style="text-align: center; margin-top: 40px;">
+      <button id="pdfBtn" style="padding: 12px 20px; font-size: 16px; background: #673ab7; color: white; border: none; border-radius: 8px; cursor: pointer;">
+        📄 Save Workout Plan as PDF
+      </button>
+    </div>
+
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', function() {
+      const pdfBtn = document.getElementById('pdfBtn');
+      if (pdfBtn) {
+        pdfBtn.addEventListener('click', downloadPDF);
+      }
+    });
+    
+    function downloadPDF() {
+      const btn = document.getElementById('pdfBtn');
+      btn.disabled = true;
+      btn.textContent = '📄 Generating PDF...';
+      
+      try {
+        const element = document.querySelector('.workout-box');
+        if (!element) {
+          alert('Could not find workout plan to download.');
+          btn.disabled = false;
+          btn.textContent = '📄 Save Workout Plan as PDF';
+          return;
+        }
+        
+        // Remove video iframes before converting to PDF
+        const clonedElement = element.cloneNode(true);
+        const videos = clonedElement.querySelectorAll('.video-section');
+        videos.forEach(video => video.remove());
+        
+        const opt = {
+          margin: 10,
+          filename: 'Workout_Plan.pdf',
+          image: { type: 'jpeg', quality: 0.98 },
+          html2canvas: { scale: 2, logging: false },
+          jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+        };
+        
+        html2pdf().set(opt).from(clonedElement).save().then(() => {
+          btn.disabled = false;
+          btn.textContent = '📄 Save Workout Plan as PDF';
+        }).catch((error) => {
+          console.error('PDF Error:', error);
+          alert('Failed to generate PDF. Please try again.');
+          btn.disabled = false;
+          btn.textContent = '📄 Save Workout Plan as PDF';
+        });
+      } catch (error) {
+        console.error('PDF download error:', error);
+        alert('An error occurred while generating the PDF. Please try again.');
+        btn.disabled = false;
+        btn.textContent = '📄 Save Workout Plan as PDF';
+      }
+    }
+  </script>
+  
+  <footer class="app-footer">
+    <p>© 2025 YS Company, a subsidiary of VISION GROUP. All rights reserved.</p>
+  </footer>
+</body>
+
+</html>
