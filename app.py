@@ -79,7 +79,7 @@ def get_api_key():
 api_key = get_api_key()
 if not api_key:
     logger.error("GEMINI_API_KEY or GOOGLE_API_KEY not set in environment variables")
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-flash-latest")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 GEMINI_TIMEOUT_MS = int(os.getenv("GEMINI_TIMEOUT_MS", "30000"))
 
 # ✅ YouTube video links for exercises
@@ -194,26 +194,31 @@ def get_gemini_client():
 
 def classify_gemini_error(error):
     """Map a Gemini SDK exception to (kind, title, user-safe message)."""
-    code = getattr(error, "status_code", None) or getattr(error, "code", None)
-    details = f"{type(error).__name__} {code or ''} {error}".lower()
+    code = getattr(error, "code", None) or getattr(error, "status_code", None)
+    raw_msg = getattr(error, "message", str(error))
+    details = f"{type(error).__name__} {code or ''} {raw_msg} {error}".lower()
 
     if (
         code in (401, 403)
-        or "api key" in details
+        or "api key not valid" in details
         or "api_key" in details
         or "unauthenticated" in details
-        or "invalid argument" in details
+        or ("invalid" in details and "key" in details)
     ):
         return (
             "invalid_api_key",
             "API Key Authentication Error",
             "The Gemini API key is missing or invalid. Please check your production GEMINI_API_KEY environment variable."
         )
-    if code == 404 or "not found" in details or "not supported" in details:
+    if (
+        code == 404
+        or ("model" in details and ("not found" in details or "not supported" in details or "invalid" in details))
+        or "not_found" in details
+    ):
         return (
             "model_unavailable",
             "AI Model Unavailable",
-            f"The specified model '{GEMINI_MODEL}' is unavailable or not supported for your API key."
+            f"The model '{GEMINI_MODEL}' is unavailable or not supported for your API key. Try setting GEMINI_MODEL=gemini-2.5-flash."
         )
     if (
         code == 429
@@ -232,11 +237,20 @@ def classify_gemini_error(error):
             "Request Timeout",
             "The AI took too long to generate a workout response. Please try again."
         )
+
+    # Safe snippet for general API error
+    user_msg = "Unable to generate workout due to an AI service error. Please try again later."
+    if raw_msg and isinstance(raw_msg, str) and len(raw_msg) < 180 and not raw_msg.startswith("{"):
+        key = get_api_key() or ""
+        clean_msg = raw_msg.replace(key, "***") if key else raw_msg
+        user_msg = f"AI API Error: {clean_msg}"
+
     return (
         "api_error",
-        "AI Service Failure",
-        "Unable to generate workout due to an AI service error. Please try again later."
+        "AI Service Error",
+        user_msg
     )
+
 
 
 # ✅ Gemini query function with timeout and error handling
