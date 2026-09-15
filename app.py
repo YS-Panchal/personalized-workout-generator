@@ -48,6 +48,7 @@ api_key = os.getenv("GEMINI_API_KEY")
 if not api_key:
     logger.error("GEMINI_API_KEY not set in environment variables")
     raise ValueError("GEMINI_API_KEY environment variable not configured")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 
 # ✅ YouTube video links for exercises
 VIDEO_MAP = {
@@ -128,13 +129,13 @@ def query_gemini(prompt):
     try:
         client = genai.Client(api_key=api_key)
         response = client.models.generate_content(
-            model="gemini-3.5-flash",
+            model=GEMINI_MODEL,
             contents=prompt
         )
         logger.info("Successfully generated workout plan")
         return response.text.strip()
     except Exception as e:
-        logger.error(f"Error generating workout: {str(type(e).__name__)}")
+        logger.exception("Error generating workout: %s", type(e).__name__)
         # Return generic error message (never expose exception details to user)
         return None
 
