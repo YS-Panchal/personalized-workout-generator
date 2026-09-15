@@ -79,7 +79,7 @@ def get_api_key():
 api_key = get_api_key()
 if not api_key:
     logger.error("GEMINI_API_KEY or GOOGLE_API_KEY not set in environment variables")
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
 GEMINI_TIMEOUT_MS = int(os.getenv("GEMINI_TIMEOUT_MS", "30000"))
 
 # ✅ YouTube video links for exercises
@@ -218,7 +218,7 @@ def classify_gemini_error(error):
         return (
             "model_unavailable",
             "AI Model Unavailable",
-            f"The model '{GEMINI_MODEL}' is unavailable or not supported for your API key. Try setting GEMINI_MODEL=gemini-2.5-flash."
+            f"The model '{GEMINI_MODEL}' is unavailable or not supported for your API key. Try setting GEMINI_MODEL=gemini-3.5-flash or GEMINI_MODEL=gemini-flash-latest."
         )
     if (
         code == 429
