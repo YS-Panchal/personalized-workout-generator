@@ -3,6 +3,7 @@ from flask_wtf.csrf import CSRFProtect
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 import google.genai as genai
+from google.genai import types as genai_types
 import markdown
 import bleach
 import re
@@ -16,15 +17,10 @@ load_dotenv()
 # Initialize Flask app
 app = Flask(__name__)
 
-# ✅ SECURITY: Set secret key for session management (required for CSRF)
-app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', os.urandom(24).hex())
+# ✅ SECURITY: Configure secure session cookies
 app.config['SESSION_COOKIE_SECURE'] = True  # Only send over HTTPS
 app.config['SESSION_COOKIE_HTTPONLY'] = True  # Prevent JS access
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'  # CSRF protection
-
-# ✅ SECURITY: Configure debug mode from environment
-DEBUG_MODE = os.getenv('FLASK_DEBUG', 'False').lower() == 'true'
-app.debug = DEBUG_MODE
 
 # ✅ SECURITY: Initialize CSRF protection
 csrf = CSRFProtect(app)
@@ -43,12 +39,29 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# ✅ SECURITY: Configure Gemini API
+# ✅ SECURITY: Configure debug mode from environment
+DEBUG_MODE = os.getenv('FLASK_DEBUG', 'False').lower() == 'true'
+app.debug = DEBUG_MODE
+
+# ✅ SECURITY: Session signing key.
+# A random key generated per process breaks sessions and CSRF tokens between
+# serverless instances, so production must provide a stable SECRET_KEY.
+SECRET_KEY = os.getenv('SECRET_KEY')
+if not SECRET_KEY:
+    if DEBUG_MODE:
+        SECRET_KEY = os.urandom(24).hex()
+        logger.warning("SECRET_KEY not set - using a temporary key (development only)")
+    else:
+        raise RuntimeError("SECRET_KEY environment variable is required in production")
+app.config['SECRET_KEY'] = SECRET_KEY
+
+# ✅ Gemini API configuration
+# A missing key must not take the whole site down - it is reported per request.
 api_key = os.getenv("GEMINI_API_KEY")
 if not api_key:
     logger.error("GEMINI_API_KEY not set in environment variables")
-    raise ValueError("GEMINI_API_KEY environment variable not configured")
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-flash-latest")
+GEMINI_TIMEOUT_MS = int(os.getenv("GEMINI_TIMEOUT_MS", "30000"))
 
 # ✅ YouTube video links for exercises
 VIDEO_MAP = {
@@ -123,21 +136,99 @@ def validate_inputs(data):
     
     return errors
 
-# ✅ Gemini query function with error handling
+# ✅ Custom error type: a failed Gemini call is reported, never silently swallowed
+class GeminiError(RuntimeError):
+    """Raised when the Gemini API call fails.
+
+    ``kind`` is a short, log-friendly reason. ``user_message`` is safe to show to
+    the user: it never contains response bodies, tracebacks or secrets.
+    """
+
+    def __init__(self, kind, user_message):
+        super().__init__(kind)
+        self.kind = kind
+        self.user_message = user_message
+
+
+# ✅ Gemini client is created once per process and re-used across requests
+_gemini_client = None
+
+
+def get_gemini_client():
+    """Return the shared Gemini client, configured with a request timeout."""
+    global _gemini_client
+    if _gemini_client is None:
+        _gemini_client = genai.Client(
+            api_key=api_key,
+            http_options=genai_types.HttpOptions(timeout=GEMINI_TIMEOUT_MS)
+        )
+    return _gemini_client
+
+
+def classify_gemini_error(error):
+    """Map a Gemini SDK exception to (reason, user-safe message)."""
+    code = getattr(error, "status_code", None) or getattr(error, "code", None)
+    details = f"{type(error).__name__} {code or ''} {error}".lower()
+
+    if (
+        code in (401, 403)
+        or "api key" in details
+        or "api_key" in details
+        or "unauthenticated" in details
+    ):
+        return ("invalid_api_key",
+                "The workout service is not configured correctly. Please try again later.")
+    if code == 404 or "not found" in details or "not supported" in details:
+        return ("model_unavailable",
+                "The AI model is temporarily unavailable. Please try again later.")
+    if (
+        code == 429
+        or "quota" in details
+        or "resource_exhausted" in details
+        or "rate limit" in details
+    ):
+        return ("quota_exceeded",
+                "The service is busy right now. Please try again in a moment.")
+    if "timeout" in details or "timed out" in details:
+        return ("timeout", "The AI took too long to respond. Please try again.")
+    return ("api_error", "Unable to generate workout. Please try again later.")
+
+
+# ✅ Gemini query function with timeout and error handling
 def query_gemini(prompt):
-    """Query Gemini API with timeout and error handling"""
+    """Query Gemini API with a timeout; raises GeminiError on failure.
+
+    The full traceback is logged server-side, while the caller only receives a
+    safe, user-facing message.
+    """
+    if not api_key:
+        logger.error("Cannot query Gemini: GEMINI_API_KEY is not set")
+        raise GeminiError(
+            "not_configured",
+            "The workout service is not configured correctly. Please try again later."
+        )
+
     try:
-        client = genai.Client(api_key=api_key)
+        client = get_gemini_client()
         response = client.models.generate_content(
             model=GEMINI_MODEL,
             contents=prompt
         )
-        logger.info("Successfully generated workout plan")
-        return response.text.strip()
     except Exception as e:
-        logger.exception("Error generating workout: %s", type(e).__name__)
-        # Return generic error message (never expose exception details to user)
-        return None
+        logger.exception("Gemini request failed for model %s", GEMINI_MODEL)
+        kind, user_message = classify_gemini_error(e)
+        raise GeminiError(kind, user_message) from e
+
+    text = getattr(response, "text", None)
+    if not text or not text.strip():
+        logger.error("Gemini returned an empty response for model %s", GEMINI_MODEL)
+        raise GeminiError(
+            "empty_response",
+            "The AI could not produce a workout plan. Please try again."
+        )
+
+    logger.info("Successfully generated workout plan")
+    return text.strip()
 
 # ✅ SECURITY: Add security headers
 @app.after_request
@@ -157,6 +248,17 @@ def set_security_headers(response):
         "connect-src 'self' https://cdnjs.cloudflare.com"
     )
     return response
+
+@app.route('/healthz')
+@limiter.exempt
+def healthz():
+    """Lightweight health probe - never exposes the API key itself."""
+    return jsonify(
+        status="ok",
+        gemini_key_configured=bool(api_key),
+        gemini_model=GEMINI_MODEL,
+    )
+
 
 @app.route('/')
 def index():
@@ -190,13 +292,12 @@ def generate():
             f"fitness level: {level}. Use {equipment if equipment else 'no equipment'}."
         )
 
-        # Query Gemini API
-        response_text = query_gemini(prompt)
-        
-        if response_text is None:
-            logger.warning("Failed to generate workout plan")
-            return render_template("index.html", 
-                                 errors=["Unable to generate workout. Please try again later."]), 500
+        # Query Gemini API (upstream failures surface as 503, not as a silent 500)
+        try:
+            response_text = query_gemini(prompt)
+        except GeminiError as e:
+            logger.error("Workout generation failed: %s", e.kind)
+            return render_template("index.html", errors=[e.user_message]), 503
 
         # ✅ SECURITY: Convert markdown to HTML and sanitize output
         html_workout = bleach.clean(
@@ -214,8 +315,8 @@ def generate():
         logger.info("Workout plan generated successfully")
         return render_template("result.html", workout=html_workout, videos=matched_videos)
     
-    except Exception as e:
-        logger.error(f"Unexpected error in /generate: {str(type(e).__name__)}")
+    except Exception:
+        logger.exception("Unexpected error in /generate")
         return render_template("index.html", 
                              errors=["An unexpected error occurred. Please try again."]), 500
 

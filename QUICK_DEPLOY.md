@@ -52,6 +52,33 @@ In Render Dashboard:
 
 ---
 
+---
+
+## Deploying on Vercel (what this project actually uses)
+
+The live app runs on Vercel, so these are the variables that matter most. Set them in
+**Project → Settings → Environment Variables** for the **Production** (and Preview)
+scope, then redeploy:
+
+```bash
+GEMINI_API_KEY = <your key from https://aistudio.google.com/app/apikey>
+SECRET_KEY     = <python -c "import os; print(os.urandom(24).hex())">   # REQUIRED
+FLASK_DEBUG    = false
+GEMINI_MODEL   = gemini-flash-latest   # or gemini-3.6-flash / gemini-3.7-flash
+```
+
+`SECRET_KEY` is mandatory: without it the app refuses to start in production, because
+sessions and CSRF tokens need one stable key across serverless instances.
+
+Verify the deployment:
+
+```bash
+curl -I https://<your-app>.vercel.app/          # expect 200
+curl https://<your-app>.vercel.app/healthz      # shows key configured + model
+```
+
+Full Vercel instructions (including a `/generate` troubleshooting table) are in
+[DEPLOYMENT.md](DEPLOYMENT.md).
 ## Important Security Notes
 
 ⚠️ **CRITICAL:**

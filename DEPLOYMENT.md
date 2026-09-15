@@ -161,6 +161,55 @@ If deployment fails, check:
 
 ---
 
+## Alternative: Deploy on Vercel
+
+Vercel detects the Flask app in `app.py` automatically (no `vercel.json` needed) and
+runs it as a Python 3.12 function. The function route shown in the Vercel logs is
+`/flask`.
+
+1. Import the GitHub repository at **https://vercel.com/new**
+2. Framework preset **Flask** is detected automatically; Vercel installs
+   `requirements.txt` for you (the `gunicorn` start command is only used by Render)
+3. Go to **Project → Settings → Environment Variables** and add these for the
+   **Production** (and Preview) scope:
+
+   | Variable | Value | Why |
+   |----------|-------|-----|
+   | `GEMINI_API_KEY` | key from https://aistudio.google.com/app/apikey | Gemini access |
+   | `SECRET_KEY` | output of `python -c "import os; print(os.urandom(24).hex())"` | **Required in production.** Without it the app refuses to start - sessions and CSRF tokens need one stable key, and a random key per serverless instance makes POSTs fail with "The CSRF token is missing." |
+   | `FLASK_DEBUG` | `false` | never enable debug in production |
+   | `GEMINI_MODEL` | e.g. `gemini-flash-latest` | pin a model your key can access |
+   | `GEMINI_TIMEOUT_MS` | `30000` | per-request timeout in milliseconds |
+
+4. Redeploy so the new variables are picked up.
+
+### Verifying a Vercel deployment
+
+```bash
+# Home page (expect 200)
+curl -I https://<your-app>.vercel.app/
+
+# Health probe: shows whether the key is configured and which model is used
+curl https://<your-app>.vercel.app/healthz
+
+# Which models your API key can actually use (read-only, no quota used)
+curl "https://generativelanguage.googleapis.com/v1beta/models?key=$GEMINI_API_KEY"
+```
+
+### Troubleshooting /generate
+
+| Symptom | Meaning | Fix |
+|---------|---------|-----|
+| `503` + "The workout service is not configured correctly" | API key rejected (invalid, revoked, placeholder or whitespace) | rotate the key at https://aistudio.google.com/app/apikey and set it for the Production scope |
+| `503` + "The AI model is temporarily unavailable" | the model in `GEMINI_MODEL` is not available to your key | pick a model returned by the models endpoint above |
+| `503` + "The service is busy right now" | quota / rate limit reached | wait or enable billing |
+| `400` + "The CSRF token is missing" | `SECRET_KEY` is missing or changing between instances | set a fixed `SECRET_KEY` |
+| `500` | unexpected internal error | Vercel → Deployments → Logs for the traceback |
+
+Server-side logs always contain the real reason (`Gemini request failed for model ...`
+followed by the SDK traceback); users only ever see a safe message.
+
+---
 ## Security Best Practices
 
 ✅ **Do:**
