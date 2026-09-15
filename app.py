@@ -51,11 +51,18 @@ app.debug = DEBUG_MODE
 # serverless instances, so production must provide a stable SECRET_KEY.
 SECRET_KEY = os.getenv('SECRET_KEY')
 if not SECRET_KEY:
-    if DEBUG_MODE:
-        SECRET_KEY = os.urandom(24).hex()
-        logger.warning("SECRET_KEY not set - using a temporary key (development only)")
+    # Generate a temporary key so the module can always be imported (e.g. during
+    # Vercel build-time analysis). In production this means sessions won't persist
+    # across restarts — set SECRET_KEY as an environment variable to fix this.
+    SECRET_KEY = os.urandom(24).hex()
+    if not DEBUG_MODE:
+        logger.warning(
+            "SECRET_KEY is not set. A temporary key has been generated. "
+            "Sessions and CSRF tokens will not persist across restarts. "
+            "Set the SECRET_KEY environment variable in your host settings."
+        )
     else:
-        raise RuntimeError("SECRET_KEY environment variable is required in production")
+        logger.warning("SECRET_KEY not set - using a temporary key (development only)")
 app.config['SECRET_KEY'] = SECRET_KEY
 
 # ✅ Gemini API configuration
