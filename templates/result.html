@@ -41,68 +41,22 @@
 {% endif %}
 
 
-    <div style="text-align: center; margin-top: 40px;">
-      <button id="pdfBtn" style="padding: 12px 20px; font-size: 16px; background: #673ab7; color: white; border: none; border-radius: 8px; cursor: pointer;">
-        📄 Save Workout Plan as PDF
-      </button>
-    </div>
+
 
   </div>
+  <form id="pdfForm" action="{{ url_for('download_pdf') }}" method="post" style="text-align:center; margin-top:20px;">
+    {{ csrf_token() }}
+    <input type="hidden" name="workout_html" value="{{ workout|tojson|safe }}">
+    <button type="submit" style="padding:12px 20px; font-size:16px; background:#673ab7; color:white; border:none; border-radius:8px; cursor:pointer;">
+      📄 Download Workout Plan as PDF
+    </button>
+  </form>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <script>
-    document.addEventListener('DOMContentLoaded', function() {
-      const pdfBtn = document.getElementById('pdfBtn');
-      if (pdfBtn) {
-        pdfBtn.addEventListener('click', downloadPDF);
-      }
-    });
-    
-    function downloadPDF() {
-      const btn = document.getElementById('pdfBtn');
-      btn.disabled = true;
-      btn.textContent = '📄 Generating PDF...';
-      
-      try {
-        const element = document.querySelector('.workout-box');
-        if (!element) {
-          alert('Could not find workout plan to download.');
-          btn.disabled = false;
-          btn.textContent = '📄 Save Workout Plan as PDF';
-          return;
-        }
-        
-        // Remove video iframes before converting to PDF
-        const clonedElement = element.cloneNode(true);
-        const videos = clonedElement.querySelectorAll('.video-section');
-        videos.forEach(video => video.remove());
-        
-        const opt = {
-          margin: 10,
-          filename: 'Workout_Plan.pdf',
-          image: { type: 'jpeg', quality: 0.98 },
-          html2canvas: { scale: 2, logging: false },
-          jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
-        };
-        
-        html2pdf().set(opt).from(clonedElement).save().then(() => {
-          btn.disabled = false;
-          btn.textContent = '📄 Save Workout Plan as PDF';
-        }).catch((error) => {
-          console.error('PDF Error:', error);
-          alert('Failed to generate PDF. Please try again.');
-          btn.disabled = false;
-          btn.textContent = '📄 Save Workout Plan as PDF';
-        });
-      } catch (error) {
-        console.error('PDF download error:', error);
-        alert('An error occurred while generating the PDF. Please try again.');
-        btn.disabled = false;
-        btn.textContent = '📄 Save Workout Plan as PDF';
-      }
-    }
+    <!-- Server-side PDF download handled by Flask endpoint; client-side PDF script removed -->
   </script>
   
   <footer class="app-footer">

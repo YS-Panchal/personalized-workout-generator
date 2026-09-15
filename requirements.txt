@@ -1,19 +1,8 @@
-# Web framework
-Flask==3.1.1
-
-# Security: CSRF protection, rate limiting, HTML sanitisation
+Flask==3.0.3
 Flask-WTF==1.2.1
 Flask-Limiter==3.5.0
+python-dotenv==1.0.1
 bleach==6.1.0
-
-# Markdown -> HTML rendering
-Markdown==3.8.2
-
-# Environment variables
-python-dotenv==1.1.1
-
-# Google Gemini SDK (pulls google-auth, pydantic, httpx, ... transitively)
-google-genai==2.23.0
-
-# WSGI server (used by Render/gunicorn; Vercel's Python runtime ignores it)
-gunicorn==23.0.0
+markdown==3.5.2
+google-generativeai==0.5.3
+weasyprint==62.3

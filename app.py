@@ -10,6 +10,9 @@ import re
 import os
 import logging
 from dotenv import load_dotenv
+from io import BytesIO
+from weasyprint import HTML
+from flask import send_file
 
 # Load environment variables
 load_dotenv()
@@ -388,6 +391,31 @@ def generate():
 
         logger.info("Workout plan generated successfully")
         return render_template("result.html", workout=html_workout, videos=matched_videos)
+
+
+# ✅ Server-side PDF generation endpoint
+@app.route('/download_pdf', methods=['POST'])
+@limiter.limit("5 per minute")
+def download_pdf():
+    """Generate a PDF from the provided workout HTML and send as download."""
+    workout_html = request.form.get('workout_html')
+    if not workout_html:
+        logger.error("No workout_html provided for PDF generation")
+        return jsonify({"error": "No workout data supplied"}), 400
+    try:
+        # Convert the HTML string to PDF using WeasyPrint
+        pdf_bytes = HTML(string=workout_html).write_pdf()
+        pdf_io = BytesIO(pdf_bytes)
+        pdf_io.seek(0)
+        return send_file(
+            pdf_io,
+            mimetype='application/pdf',
+            as_attachment=True,
+            download_name='Workout_Plan.pdf'
+        )
+    except Exception as e:
+        logger.exception("PDF generation failed")
+        return jsonify({"error": "Failed to generate PDF"}), 500
     
     except Exception:
         logger.exception("Unexpected error in /generate")
