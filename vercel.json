@@ -3,11 +3,7 @@
   "builds": [
     {
       "src": "app.py",
-      "use": "@vercel/python",
-      "config": {
-        "maxLambdaSize": "50mb",
-        "installCommand": "bash vercel-build.sh"
-      }
+      "use": "@vercel/python"
     }
   ],
   "routes": [
