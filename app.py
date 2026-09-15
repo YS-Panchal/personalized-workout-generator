@@ -11,7 +11,6 @@ import os
 import logging
 from dotenv import load_dotenv
 from io import BytesIO
-from weasyprint import HTML
 from flask import send_file
 
 # Load environment variables
@@ -410,8 +409,9 @@ def download_pdf():
         logger.error("No workout_html provided for PDF generation")
         return jsonify({"error": "No workout data supplied"}), 400
     try:
-        # Convert the HTML string to PDF using WeasyPrint
-        pdf_bytes = HTML(string=workout_html).write_pdf()
+        # Lazy import so WeasyPrint's native libs are not required at module load time
+        from weasyprint import HTML as WeasyprintHTML
+        pdf_bytes = WeasyprintHTML(string=workout_html).write_pdf()
         pdf_io = BytesIO(pdf_bytes)
         pdf_io.seek(0)
         return send_file(
@@ -420,23 +420,9 @@ def download_pdf():
             as_attachment=True,
             download_name='Workout_Plan.pdf'
         )
-    except Exception as e:
+    except Exception:
         logger.exception("PDF generation failed")
         return jsonify({"error": "Failed to generate PDF"}), 500
-    
-    except Exception:
-        logger.exception("Unexpected error in /generate")
-        api_error_obj = {
-            "kind": "unexpected",
-            "title": "Unexpected Server Error",
-            "message": "An unexpected system error occurred. Please try again."
-        }
-        return render_template(
-            "index.html",
-            api_error=api_error_obj,
-            errors=["An unexpected error occurred. Please try again."],
-            form_data=request.form
-        ), 500
 
 if __name__ == '__main__':
     # ✅ SECURITY: Use environment variable for debug mode
