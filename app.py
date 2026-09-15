@@ -56,10 +56,29 @@ if not SECRET_KEY:
 app.config['SECRET_KEY'] = SECRET_KEY
 
 # ✅ Gemini API configuration
-# A missing key must not take the whole site down - it is reported per request.
-api_key = os.getenv("GEMINI_API_KEY")
+def get_api_key():
+    """Dynamically fetch and sanitize the Gemini API key.
+
+    Production environment variables can contain surrounding quotes or whitespace.
+    Checks explicit module-level `api_key` override first if set,
+    then GEMINI_API_KEY / GOOGLE_API_KEY.
+    """
+    global api_key
+    key = api_key if 'api_key' in globals() and api_key is not None else None
+    if not key:
+        key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+    if not key:
+        return None
+    key = str(key).strip()
+    if (key.startswith('"') and key.endswith('"')) or (key.startswith("'") and key.endswith("'")):
+        key = key[1:-1].strip()
+    return key if key else None
+
+
+
+api_key = get_api_key()
 if not api_key:
-    logger.error("GEMINI_API_KEY not set in environment variables")
+    logger.error("GEMINI_API_KEY or GOOGLE_API_KEY not set in environment variables")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-flash-latest")
 GEMINI_TIMEOUT_MS = int(os.getenv("GEMINI_TIMEOUT_MS", "30000"))
 
@@ -140,33 +159,41 @@ def validate_inputs(data):
 class GeminiError(RuntimeError):
     """Raised when the Gemini API call fails.
 
-    ``kind`` is a short, log-friendly reason. ``user_message`` is safe to show to
-    the user: it never contains response bodies, tracebacks or secrets.
+    ``kind`` is a short error code. ``title`` is a user-friendly category title.
+    ``user_message`` is safe to show to the user without exposing secrets or tracebacks.
     """
 
-    def __init__(self, kind, user_message):
+    def __init__(self, kind, title, user_message=None):
+        if user_message is None:
+            # Handle 2-arg legacy call signature for backward compatibility in tests: GeminiError(kind, message)
+            user_message = title
+            title = "AI Service Error"
         super().__init__(kind)
         self.kind = kind
+        self.title = title
         self.user_message = user_message
 
 
-# ✅ Gemini client is created once per process and re-used across requests
+# ✅ Gemini client is created lazily and re-used across requests
 _gemini_client = None
+_last_client_key = None
 
 
 def get_gemini_client():
-    """Return the shared Gemini client, configured with a request timeout."""
-    global _gemini_client
-    if _gemini_client is None:
+    """Return the shared Gemini client, configured with a request timeout and current key."""
+    global _gemini_client, _last_client_key
+    current_key = get_api_key()
+    if _gemini_client is None or _last_client_key != current_key:
         _gemini_client = genai.Client(
-            api_key=api_key,
+            api_key=current_key,
             http_options=genai_types.HttpOptions(timeout=GEMINI_TIMEOUT_MS)
         )
+        _last_client_key = current_key
     return _gemini_client
 
 
 def classify_gemini_error(error):
-    """Map a Gemini SDK exception to (reason, user-safe message)."""
+    """Map a Gemini SDK exception to (kind, title, user-safe message)."""
     code = getattr(error, "status_code", None) or getattr(error, "code", None)
     details = f"{type(error).__name__} {code or ''} {error}".lower()
 
@@ -175,37 +202,53 @@ def classify_gemini_error(error):
         or "api key" in details
         or "api_key" in details
         or "unauthenticated" in details
+        or "invalid argument" in details
     ):
-        return ("invalid_api_key",
-                "The workout service is not configured correctly. Please try again later.")
+        return (
+            "invalid_api_key",
+            "API Key Authentication Error",
+            "The Gemini API key is missing or invalid. Please check your production GEMINI_API_KEY environment variable."
+        )
     if code == 404 or "not found" in details or "not supported" in details:
-        return ("model_unavailable",
-                "The AI model is temporarily unavailable. Please try again later.")
+        return (
+            "model_unavailable",
+            "AI Model Unavailable",
+            f"The specified model '{GEMINI_MODEL}' is unavailable or not supported for your API key."
+        )
     if (
         code == 429
         or "quota" in details
         or "resource_exhausted" in details
         or "rate limit" in details
     ):
-        return ("quota_exceeded",
-                "The service is busy right now. Please try again in a moment.")
+        return (
+            "quota_exceeded",
+            "Quota / Rate Limit Exceeded",
+            "The AI service is currently busy or rate-limited. Please wait a moment and try again."
+        )
     if "timeout" in details or "timed out" in details:
-        return ("timeout", "The AI took too long to respond. Please try again.")
-    return ("api_error", "Unable to generate workout. Please try again later.")
+        return (
+            "timeout",
+            "Request Timeout",
+            "The AI took too long to generate a workout response. Please try again."
+        )
+    return (
+        "api_error",
+        "AI Service Failure",
+        "Unable to generate workout due to an AI service error. Please try again later."
+    )
 
 
 # ✅ Gemini query function with timeout and error handling
 def query_gemini(prompt):
-    """Query Gemini API with a timeout; raises GeminiError on failure.
-
-    The full traceback is logged server-side, while the caller only receives a
-    safe, user-facing message.
-    """
-    if not api_key:
+    """Query Gemini API with a timeout; raises GeminiError on failure."""
+    current_key = get_api_key()
+    if not current_key:
         logger.error("Cannot query Gemini: GEMINI_API_KEY is not set")
         raise GeminiError(
             "not_configured",
-            "The workout service is not configured correctly. Please try again later."
+            "API Key Missing",
+            "The workout service is not configured with a valid GEMINI_API_KEY environment variable."
         )
 
     try:
@@ -216,14 +259,15 @@ def query_gemini(prompt):
         )
     except Exception as e:
         logger.exception("Gemini request failed for model %s", GEMINI_MODEL)
-        kind, user_message = classify_gemini_error(e)
-        raise GeminiError(kind, user_message) from e
+        kind, title, user_message = classify_gemini_error(e)
+        raise GeminiError(kind, title, user_message) from e
 
     text = getattr(response, "text", None)
     if not text or not text.strip():
         logger.error("Gemini returned an empty response for model %s", GEMINI_MODEL)
         raise GeminiError(
             "empty_response",
+            "Empty AI Response",
             "The AI could not produce a workout plan. Please try again."
         )
 
@@ -253,9 +297,10 @@ def set_security_headers(response):
 @limiter.exempt
 def healthz():
     """Lightweight health probe - never exposes the API key itself."""
+    current_key = get_api_key()
     return jsonify(
         status="ok",
-        gemini_key_configured=bool(api_key),
+        gemini_key_configured=bool(current_key),
         gemini_model=GEMINI_MODEL,
     )
 
@@ -273,7 +318,12 @@ def generate():
         validation_errors = validate_inputs(request.form)
         if validation_errors:
             logger.warning(f"Invalid input: {validation_errors}")
-            return render_template("index.html", errors=validation_errors), 400
+            return render_template(
+                "index.html",
+                validation_errors=validation_errors,
+                errors=validation_errors,
+                form_data=request.form
+            ), 400
         
         # Extract and sanitize form data
         goal = bleach.clean(request.form['goal'])
@@ -296,8 +346,18 @@ def generate():
         try:
             response_text = query_gemini(prompt)
         except GeminiError as e:
-            logger.error("Workout generation failed: %s", e.kind)
-            return render_template("index.html", errors=[e.user_message]), 503
+            logger.error("Workout generation failed: %s (%s)", e.kind, e.title)
+            api_error_obj = {
+                "kind": e.kind,
+                "title": e.title,
+                "message": e.user_message
+            }
+            return render_template(
+                "index.html",
+                api_error=api_error_obj,
+                errors=[e.user_message],
+                form_data=request.form
+            ), 503
 
         # ✅ SECURITY: Convert markdown to HTML and sanitize output
         html_workout = bleach.clean(
@@ -306,7 +366,7 @@ def generate():
             strip=True
         )
 
-        # Match exercise videos (moved outside loop - FIX FOR LOGIC BUG)
+        # Match exercise videos
         matched_videos = []
         for key in VIDEO_MAP:
             if re.search(rf'\b{key}\b', response_text, re.IGNORECASE):
@@ -317,8 +377,17 @@ def generate():
     
     except Exception:
         logger.exception("Unexpected error in /generate")
-        return render_template("index.html", 
-                             errors=["An unexpected error occurred. Please try again."]), 500
+        api_error_obj = {
+            "kind": "unexpected",
+            "title": "Unexpected Server Error",
+            "message": "An unexpected system error occurred. Please try again."
+        }
+        return render_template(
+            "index.html",
+            api_error=api_error_obj,
+            errors=["An unexpected error occurred. Please try again."],
+            form_data=request.form
+        ), 500
 
 if __name__ == '__main__':
     # ✅ SECURITY: Use environment variable for debug mode

@@ -112,13 +112,15 @@ class WorkoutAppTestCase(unittest.TestCase):
     def test_query_gemini_without_api_key_raises_gemini_error(self):
         original_key = workout_app.api_key
         workout_app.api_key = None
-        try:
-            with self.assertRaises(workout_app.GeminiError) as ctx:
-                workout_app.query_gemini("test prompt")
-        finally:
-            workout_app.api_key = original_key
+        with mock.patch.dict(os.environ, {"GEMINI_API_KEY": "", "GOOGLE_API_KEY": ""}, clear=True):
+            try:
+                with self.assertRaises(workout_app.GeminiError) as ctx:
+                    workout_app.query_gemini("test prompt")
+            finally:
+                workout_app.api_key = original_key
 
         self.assertEqual(ctx.exception.kind, "not_configured")
+
 
     def test_classify_gemini_error_maps_status_codes(self):
         class FakeError(Exception):
@@ -136,6 +138,31 @@ class WorkoutAppTestCase(unittest.TestCase):
             workout_app.classify_gemini_error(FakeError(None, "API key not valid"))[0],
             "invalid_api_key")
 
+    def test_get_api_key_sanitizes_quotes_and_whitespace(self):
+        with mock.patch.dict(os.environ, {"GEMINI_API_KEY": '  "AIzaTestKey123"  '}, clear=True):
+            workout_app.api_key = None
+            self.assertEqual(workout_app.get_api_key(), "AIzaTestKey123")
+
+        with mock.patch.dict(os.environ, {"GOOGLE_API_KEY": "  'AIzaTestKey456'  "}, clear=True):
+            workout_app.api_key = None
+            self.assertEqual(workout_app.get_api_key(), "AIzaTestKey456")
+
+    def test_generate_renders_specific_api_error_banner(self):
+        with mock.patch.object(
+                workout_app, "query_gemini",
+                side_effect=workout_app.GeminiError(
+                    "invalid_api_key",
+                    "API Key Authentication Error",
+                    "The Gemini API key is missing or invalid."
+                )):
+            response = self.client.post("/generate", data=VALID_FORM)
+
+        body = response.get_data(as_text=True)
+        self.assertEqual(response.status_code, 503)
+        self.assertIn("api-error-box", body)
+        self.assertIn("API Key Authentication Error", body)
+        self.assertIn("The Gemini API key is missing or invalid.", body)
+
     def test_healthz(self):
         response = self.client.get("/healthz")
         payload = json.loads(response.get_data(as_text=True))
@@ -143,6 +170,7 @@ class WorkoutAppTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(payload["status"], "ok")
         self.assertTrue(payload["gemini_key_configured"])
+
 
 
 @unittest.skipUnless(os.getenv("RUN_LIVE_GEMINI_TEST") == "1",
